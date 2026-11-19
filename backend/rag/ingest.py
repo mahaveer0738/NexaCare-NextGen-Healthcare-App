@@ -8,7 +8,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def ingest_pdfs(data_dir: str = "../../data/"):
+def ingest_pdfs(data_dir: str = "../data/"):
     """
     Reads all PDFs in the data directory, chunks them, and stores them in ChromaDB.
     """
