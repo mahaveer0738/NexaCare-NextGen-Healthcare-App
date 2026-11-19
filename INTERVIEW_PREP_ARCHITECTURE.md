@@ -667,3 +667,167 @@ locator.html       → Hospital/Pharmacy finder → GET /user/locator
 
 > **Good luck with the interview tomorrow! You've built a genuinely impressive multi-AI system. Own it.** 🚀
 
+
+
+---
+
+## 14. Backend, JWT Auth & FastAPI / REST API (Deep-Dive Interview Questions)
+
+### 🔐 JWT Authentication Questions
+
+**Q26: What is JWT and how does it work?**
+> "JWT stands for JSON Web Token. It is a compact, URL-safe means of representing claims to be transferred between two parties. It has 3 parts separated by dots: `Header.Payload.Signature`.
+> - **Header**: Specifies the token type (`JWT`) and signing algorithm (`HS256` in our project).
+> - **Payload**: Contains the claims (e.g., user identity `sub: user@example.com` and token expiration `exp`).
+> - **Signature**: Created by taking the encoded header, encoded payload, a secret key, and signing them with HMAC-SHA256 (`HS256`). If any character in the header or payload is modified, the signature validation fails immediately."
+
+```
+eyJhbGciOiJIUzI1NiJ9  .  eyJzdWIiOiJ1c2VyQGdtYWlsLmNvbSIsImV4cCI6...}  .  signature
+       HEADER                          PAYLOAD                              SIGNATURE
+```
+
+---
+
+**Q27: What is the difference between Authentication and Authorization?**
+> "Authentication verifies **who you are** (identity validation via login and password/token verification). Authorization determines **what you are allowed to do** (permissions and access rights). In NexaCare, JWT handles authentication: logging in returns a signed token, and protected endpoints decode and verify this token before processing any request."
+
+---
+
+**Q28: Why use JWT instead of traditional Server-Side Sessions?**
+> "Sessions are stateful: the server stores session IDs in memory or a database (like Redis) and looks them up on every request. This creates a state bottleneck when scaling horizontally. JWT is stateless: the token itself holds the verified claims, and the server validates it cryptographically using the secret key without querying a session store, making it horizontally scalable and ideal for REST APIs."
+
+---
+
+**Q29: How do you store passwords securely in NexaCare?**
+> "We use **bcrypt** directly. Passwords are never stored in plain text. On registration, `bcrypt.gensalt()` generates a cryptographically secure random salt, and `bcrypt.hashpw()` produces a one-way hashed string. The salt defends against rainbow-table attacks. During login, `bcrypt.checkpw()` takes the plain password and the stored hash, extracts the salt from the hash, re-hashes the input, and compares them securely."
+
+```python
+# From backend/core/security.py:
+def get_password_hash(password: str) -> str:
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+```
+
+---
+
+**Q30: What is your token expiry duration and why?**
+> "In `security.py`, `ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7` (7 days). In a healthcare triage consultation app, an overly short expiration (e.g., 15 minutes) creates friction if patients are actively inputting vitals or reviewing guidelines. A 7-day expiration provides a balance for client convenience in mobile/web applications. In an enterprise production deployment, we would pair a short-lived access token (15-30 mins) with a securely stored rotating refresh token."
+
+---
+
+**Q31: What is a Refresh Token and how would you implement it?**
+> "A refresh token is a long-lived credential stored securely (such as an `HttpOnly`, `Secure` cookie) used exclusively to obtain a new short-lived access token without requiring the user to re-enter credentials. When an access token expires (401), the frontend hits `/auth/refresh` with the refresh token to receive a fresh access token."
+
+---
+
+**Q32: How does FastAPI protect endpoints using JWT?**
+> "Via FastAPI's dependency injection system (`Depends`). We instantiate `OAuth2PasswordBearer(tokenUrl='auth/login')`. Our `get_current_user` dependency function extracts the Bearer token from the `Authorization: Bearer <token>` header, decodes it with `decode_access_token()`, extracts the `sub` (email), and queries SQLAlchemy for the active `User`. Any endpoint adding `current_user: User = Depends(get_current_user)` is automatically secured."
+
+```python
+# From backend/api/routes_auth.py:
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    email = payload.get("sub")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+```
+
+---
+
+### ⚡ FastAPI Framework Questions
+
+**Q33: Why choose FastAPI over Flask or Django?**
+> "1. **Asynchronous Performance**: Built on Starlette and Uvicorn, FastAPI supports native `async/await`, matching Node.js/Go performance for I/O-bound tasks (LLM queries, external map APIs).
+> 2. **Automatic OpenAPI/Swagger Documentation**: Interactive documentation (`/docs` via Swagger UI and `/redoc`) is generated automatically from Pydantic schemas and route signatures without third-party plugins.
+> 3. **Robust Data Validation**: Deep integration with Pydantic ensures compile-time and runtime validation with automatic `422 Unprocessable Entity` responses on schema mismatch."
+
+---
+
+**Q34: What is Pydantic and how is it used in NexaCare?**
+> "Pydantic is a data parsing and validation library using standard Python type hints. In NexaCare:
+> - `PatientVitals`: Validates numerical clinical ranges (e.g., `pain_level` constrained between 0 and 10 using `Field(..., ge=0, le=10)`).
+> - `PredictionResponse` & `MRIPredictionResponse`: Enforces strict serialization schemas for ML/DL model outputs."
+
+---
+
+**Q35: What is Dependency Injection in FastAPI and what are its benefits?**
+> "Dependency Injection (`Depends`) allows route handlers to declare dependencies that FastAPI resolves and injects at runtime. In NexaCare:
+> - `db: Session = Depends(get_db)` provides a scoped SQLAlchemy database session that automatically closes upon request completion (preventing connection leaks).
+> - `current_user: User = Depends(get_current_user)` modularizes authentication logic across any route."
+
+---
+
+**Q36: Why and where did you use `async/await` in your backend?**
+> "We used `async def` for I/O-bound routes and tools, particularly `/chat/` and `search_places`. These operations wait on external network calls — Reverse Geocoding with Nominatim, Google Places API HTTP calls via `httpx.AsyncClient`, and asynchronous LangGraph execution (`clinical_agent.ainvoke`). Asynchronous execution frees the server's event loop to handle other incoming requests instead of blocking worker threads."
+
+---
+
+**Q37: What is CORS and how did you configure it?**
+> "CORS (Cross-Origin Resource Sharing) is a browser security mechanism that blocks web applications running on one origin (e.g., `http://localhost:5500`) from requesting resources from a different origin (e.g., `http://127.0.0.1:8000`). We added FastAPI's `CORSMiddleware` with `allow_origins=['*']` for local development. For production, `allow_origins` must be restricted to the verified frontend domain."
+
+---
+
+### 🌐 REST API Design & Architecture Questions
+
+**Q38: What HTTP methods did you use and what are their semantic rules?**
+> "- **GET**: Safe and idempotent. Used for retrieving data without side effects (e.g., `GET /user/history` for visit timeline, `GET /user/locator` for hospital searches).
+> - **POST**: Non-idempotent. Used for creating resources or triggering stateful actions (e.g., `POST /auth/register`, `POST /chat/`, `POST /predict/mri`).
+> - **PUT / PATCH**: Used for full resource replacement (PUT) or partial updates (PATCH).
+> - **DELETE**: Used to remove a resource."
+
+---
+
+**Q39: What is the difference between 401 Unauthorized and 403 Forbidden?**
+> "- **401 Unauthorized**: Authentication is missing or invalid (no valid token, expired token, or incorrect credentials). The client must authenticate.
+> - **403 Forbidden**: Authentication succeeded, but the user lacks permission to access the requested resource. For example, a regular patient attempting to access administrative health records."
+
+---
+
+**Q40: What HTTP Status Codes are returned across your endpoints?**
+> | Status Code | Meaning | Example from NexaCare |
+> |---|---|---|
+> | `200 OK` | Request succeeded | Successful `/chat/`, `/user/history`, `/predict/` |
+> | `201 Created` | Resource created | Successful `POST /auth/register` |
+> | `400 Bad Request` | Client-side semantic error | Duplicate email on registration, invalid vitals JSON, non-image MRI upload |
+> | `401 Unauthorized` | Missing / invalid credentials | Missing or expired JWT in `/chat/` or `/user/history` |
+> | `422 Unprocessable Entity` | Pydantic validation failure | Invalid data types (e.g., string passed for heart rate) |
+> | `500 Internal Server Error` | Unexpected server exception | Graph execution failure (with DB rollback) |
+> | `503 Service Unavailable` | Required model not loaded | ML model file missing or uninitialized |
+
+---
+
+**Q41: What is `multipart/form-data` and why did you use it for the `/chat/` endpoint?**
+> "`multipart/form-data` encodes form fields as separate parts of a single request body with dedicated boundaries. We used it for `/chat/` because the endpoint accepts both structured metadata (symptoms text, location string, vitals JSON) AND binary file data (prescription or lab report image via `UploadFile`). JSON payloads cannot natively transfer binary image files without inefficient Base64 encoding overhead."
+
+---
+
+**Q42: What is the difference between Path parameters, Query parameters, and Request Body?**
+> "- **Path Parameters**: Embedded directly in the URL path to identify a specific resource (e.g., `/patients/{id}`).
+> - **Query Parameters**: Appended after `?` to sort, filter, or paginate (e.g., `GET /user/locator?location=Mumbai&place_type=hospital`).
+> - **Request Body**: Carries payload data in the HTTP request body (JSON or Form Data) for complex representations during POST/PUT operations."
+
+---
+
+### 🗄️ Database & ORM (SQLAlchemy) Questions
+
+**Q43: What is an ORM and why use SQLAlchemy?**
+> "An ORM (Object-Relational Mapping) maps relational database tables to Python classes and rows to object instances. Instead of writing raw SQL strings (`SELECT * FROM users WHERE email = ...`), we interact via idiomatic Python (`db.query(User).filter(User.email == email).first()`).
+> - **Benefits**: Automatic SQL injection protection via parameterized queries, database engine portability (switching between SQLite and PostgreSQL without rewriting queries), and automated relationship management (`relationship('PatientProfile')`)."
+
+---
+
+**Q44: How are table relationships structured in NexaCare?**
+> "We define a clear relational hierarchy:
+> - `User` (1) ── (1) `PatientProfile` via `uselist=False`
+> - `PatientProfile` (1) ── (N) `VisitHistory` via foreign key `patient_profiles.id`
+> - `PatientProfile` (1) ── (N) `MRIPrediction` via foreign key `patient_profiles.id`
+> This ensures all visits, vitals snapshots, and MRI scans remain linked to the patient's unified record."
